@@ -1,0 +1,6 @@
+{
+  "name": "Kalkulator Dagang & Arus Kas",
+  "description": "Kalkulator penjualan per wadah dan satuan untuk menghitung laba (gain), ekuitas (equity), serta alokasi otomatis dana yang harus diputar dan disimpan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

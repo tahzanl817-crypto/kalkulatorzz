@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'email', 'modalAwal']) &&
+        data.keys().hasOnly(['userId', 'email', 'modalAwal', 'displayName', 'updatedAt']) &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.email is string && data.email.size() <= 256 &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+        data.modalAwal is number &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll([
+          'id', 'userId', 'namaBarang', 'satuanWadah', 'jumlahBarangWadah',
+          'satuanUnit', 'hargaBeli', 'jumlahBarangDijualSatuan', 'hargaJualSatuan',
+          'persentaseLabaDisimpanBulanan', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'namaBarang', 'satuanWadah', 'jumlahBarangWadah',
+          'satuanUnit', 'hargaBeli', 'jumlahBarangDijualSatuan', 'hargaJualSatuan',
+          'persentaseLabaDisimpanBulanan', 'perputaranBulan', 'tanggalInput',
+          'waktuInput', 'catatan', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.namaBarang is string && data.namaBarang.size() > 0 && data.namaBarang.size() <= 256 &&
+        data.satuanWadah is string && data.satuanWadah.size() <= 64 &&
+        data.jumlahBarangWadah is number &&
+        data.satuanUnit is string && data.satuanUnit.size() <= 64 &&
+        data.hargaBeli is number &&
+        data.jumlahBarangDijualSatuan is number &&
+        data.hargaJualSatuan is number &&
+        data.persentaseLabaDisimpanBulanan is number &&
+        (!('perputaranBulan' in data) || data.perputaranBulan is number) &&
+        (!('tanggalInput' in data) || (data.tanggalInput is string && data.tanggalInput.size() <= 32)) &&
+        (!('waktuInput' in data) || (data.waktuInput is string && data.waktuInput.size() <= 32)) &&
+        (!('catatan' in data) || (data.catatan is string && data.catatan.size() <= 512)) &&
+        data.createdAt is number &&
+        data.updatedAt is number;
+    }
+
+    match /users/{userId} {
+      allow get, delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserProfile(incoming()) && incoming().userId == request.auth.uid;
+      allow update: if isOwner(userId) && isValidUserProfile(incoming()) && incoming().userId == existing().userId;
+
+      match /items/{itemId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(itemId) && isValidInventoryItem(incoming()) && incoming().userId == request.auth.uid;
+        allow update: if isOwner(userId) && isValidId(itemId) && isValidInventoryItem(incoming()) && incoming().userId == existing().userId && incoming().id == existing().id;
+        allow delete: if isOwner(userId) && isValidId(itemId);
+      }
+    }
+  }
+}

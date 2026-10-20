@@ -1,0 +1,126 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and store settings including initial capital modalAwal",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The user's Firebase Authentication UID",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's email address",
+          "maxLength": 256
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name",
+          "maxLength": 128
+        },
+        "modalAwal": {
+          "type": "number",
+          "description": "Initial capital set by user"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 64
+        }
+      },
+      "required": ["userId", "email", "modalAwal"]
+    },
+    "InventoryItem": {
+      "title": "InventoryItem",
+      "description": "Individual merchandise item in store inventory matching InventoryItem type",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the item",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the owner user",
+          "maxLength": 128
+        },
+        "namaBarang": {
+          "type": "string",
+          "description": "Name of the item",
+          "maxLength": 256
+        },
+        "satuanWadah": {
+          "type": "string",
+          "description": "Container unit (Dus, Karton, Wadah, etc)",
+          "maxLength": 64
+        },
+        "jumlahBarangWadah": {
+          "type": "number",
+          "description": "Total units per container"
+        },
+        "satuanUnit": {
+          "type": "string",
+          "description": "Sub-unit (pcs, bks, botol, etc)",
+          "maxLength": 64
+        },
+        "hargaBeli": {
+          "type": "number",
+          "description": "Purchase cost per container"
+        },
+        "jumlahBarangDijualSatuan": {
+          "type": "number",
+          "description": "Quantity sold in units"
+        },
+        "hargaJualSatuan": {
+          "type": "number",
+          "description": "Selling price per unit"
+        },
+        "persentaseLabaDisimpanBulanan": {
+          "type": "number",
+          "description": "Percentage of profit to save monthly"
+        },
+        "perputaranBulan": {
+          "type": "number",
+          "description": "Estimated turnover cycle"
+        },
+        "tanggalInput": {
+          "type": "string",
+          "description": "Date string YYYY-MM-DD",
+          "maxLength": 32
+        },
+        "waktuInput": {
+          "type": "string",
+          "description": "Time string HH:mm:ss",
+          "maxLength": 32
+        },
+        "catatan": {
+          "type": "string",
+          "description": "Optional notes",
+          "maxLength": 512
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp in milliseconds"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last update timestamp in milliseconds"
+        }
+      },
+      "required": ["id", "userId", "namaBarang", "satuanWadah", "jumlahBarangWadah", "satuanUnit", "hargaBeli", "jumlahBarangDijualSatuan", "hargaJualSatuan", "persentaseLabaDisimpanBulanan", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile with initial capital setting"
+    },
+    "/users/{userId}/items/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Merchandise items belonging to a specific user"
+    }
+  }
+}
