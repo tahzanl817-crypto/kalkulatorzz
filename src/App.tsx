@@ -12,6 +12,7 @@ import { PrintReportView } from './components/PrintReportView';
 import { AuthModal } from './components/AuthModal';
 import { CosmicInteractiveBackground, BackgroundTheme } from './components/CosmicInteractiveBackground';
 import { useAuth } from './context/AuthContext';
+import { supabase } from './lib/supabase';
 import { 
   Cloud, 
   CheckCircle2, 
@@ -139,11 +140,23 @@ export default function App() {
     }
   };
 
-  // Automatically open sign-in modal for password recovery links.
+  // Open the password reset modal for both implicit and PKCE recovery links.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
-      setIsAuthModalOpen(true);
-    }
+    if (typeof window === 'undefined') return;
+
+    const url = new URL(window.location.href);
+    const hasRecoveryMarker =
+      url.hash.includes('type=recovery') ||
+      url.searchParams.get('type') === 'recovery' ||
+      url.searchParams.has('code');
+
+    if (hasRecoveryMarker) setIsAuthModalOpen(true);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setIsAuthModalOpen(true);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   // Cloud Sync Statuses
