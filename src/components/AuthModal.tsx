@@ -32,15 +32,39 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [isRecoverySessionReady, setIsRecoverySessionReady] = useState(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.location.hash.includes('type=recovery')) return;
+    if (typeof window === 'undefined') return;
 
-    setIsResetMode(true);
-    setIsRecoveryFlow(true);
-    setIsRegisterMode(false);
+    // Supabase may return recovery credentials in the URL hash or a PKCE code in the query.
+    const url = new URL(window.location.href);
+    const hasRecoveryMarker =
+      url.hash.includes('type=recovery') ||
+      url.searchParams.get('type') === 'recovery' ||
+      url.searchParams.has('code');
 
     let active = true;
+    if (hasRecoveryMarker) {
+      setIsResetMode(true);
+      setIsRecoveryFlow(true);
+      setIsRegisterMode(false);
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (active && session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+      if (!active) return;
+
+      // The PASSWORD_RECOVERY event is the authoritative signal from Supabase.
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsResetMode(true);
+        setIsRecoveryFlow(true);
+        setIsRegisterMode(false);
+        setIsRecoverySessionReady(Boolean(session));
+        setErrorMsg(null);
+        return;
+      }
+
+      if (hasRecoveryMarker && session && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        setIsResetMode(true);
+        setIsRecoveryFlow(true);
+        setIsRegisterMode(false);
         setIsRecoverySessionReady(true);
         setErrorMsg(null);
       }
@@ -48,13 +72,20 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (!active) return;
-      if (session) {
+      if (hasRecoveryMarker && session) {
+        setIsResetMode(true);
+        setIsRecoveryFlow(true);
+        setIsRegisterMode(false);
         setIsRecoverySessionReady(true);
-      } else if (error) {
+      } else if (hasRecoveryMarker && error) {
         setErrorMsg('Tautan pemulihan tidak valid atau sudah kedaluwarsa. Minta tautan baru dari halaman login.');
+      } else if (hasRecoveryMarker && !session) {
+        setErrorMsg('Sesi pemulihan belum terbentuk. Tautan mungkin kedaluwarsa atau URL redirect belum diizinkan di Supabase. Minta tautan baru.');
       }
     }).catch(() => {
-      if (active) setErrorMsg('Tidak dapat memverifikasi tautan pemulihan. Minta tautan baru dari halaman login.');
+      if (active && hasRecoveryMarker) {
+        setErrorMsg('Tidak dapat memverifikasi tautan pemulihan. Minta tautan baru dari halaman login.');
+      }
     });
 
     return () => {
