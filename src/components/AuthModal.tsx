@@ -29,13 +29,38 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
+  const [isRecoverySessionReady, setIsRecoverySessionReady] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
-      setIsResetMode(true);
-      setIsRecoveryFlow(true);
-      setIsRegisterMode(false);
-    }
+    if (typeof window === 'undefined' || !window.location.hash.includes('type=recovery')) return;
+
+    setIsResetMode(true);
+    setIsRecoveryFlow(true);
+    setIsRegisterMode(false);
+
+    let active = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (active && session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        setIsRecoverySessionReady(true);
+        setErrorMsg(null);
+      }
+    });
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (!active) return;
+      if (session) {
+        setIsRecoverySessionReady(true);
+      } else if (error) {
+        setErrorMsg('Tautan pemulihan tidak valid atau sudah kedaluwarsa. Minta tautan baru dari halaman login.');
+      }
+    }).catch(() => {
+      if (active) setErrorMsg('Tidak dapat memverifikasi tautan pemulihan. Minta tautan baru dari halaman login.');
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -120,6 +145,10 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setIsLoading(true);
     try {
       if (isRecoveryFlow) {
+        if (!isRecoverySessionReady) {
+          setErrorMsg('Tautan pemulihan sedang diverifikasi. Tunggu sebentar atau minta tautan baru jika halaman ini terus muncul.');
+          return;
+        }
         if (password.length < 6) {
           setErrorMsg('Kata sandi baru minimal 6 karakter.');
           return;
@@ -490,6 +519,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
           {/* Email / Password Form */}
           <form onSubmit={isResetMode ? handlePasswordReset : handleEmailAuth} className="space-y-3 font-mono">
+            {!isRecoveryFlow && (
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">Alamat Email</label>
               <div className="relative">
@@ -504,6 +534,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 />
               </div>
             </div>
+            )}
 
             {!isResetMode || isRecoveryFlow ? (
             <div>
@@ -524,7 +555,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || (isRecoveryFlow && !isRecoverySessionReady)}
               className="w-full mt-2 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isLoading ? (
@@ -535,7 +566,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
               ) : isResetMode ? (
                 <>
                   <Mail className="w-4 h-4" />
-                  <span>{isRecoveryFlow ? 'Simpan Kata Sandi Baru' : 'Kirim Tautan Pemulihan'}</span>
+                  <span>{isRecoveryFlow ? (isRecoverySessionReady ? 'Simpan Kata Sandi Baru' : 'Memverifikasi Tautan...') : 'Kirim Tautan Pemulihan'}</span>
                 </>
               ) : isRegisterMode ? (
                 <>
