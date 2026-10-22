@@ -452,7 +452,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@email.com"
-                  required
+                  required={!isRecoveryFlow}
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-950 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
