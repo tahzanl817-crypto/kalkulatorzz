@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   X,
@@ -16,6 +16,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { supabase } from '../lib/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -26,6 +27,16 @@ interface AuthModalProps {
 export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isResetMode, setIsResetMode] = useState(false);
+  const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
+      setIsResetMode(true);
+      setIsRecoveryFlow(true);
+      setIsRegisterMode(false);
+    }
+  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +109,42 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
       } else {
         setErrorMsg('Gagal masuk dengan Google: ' + msg);
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setIsLoading(true);
+    try {
+      if (isRecoveryFlow) {
+        if (password.length < 6) {
+          setErrorMsg('Kata sandi baru minimal 6 karakter.');
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        setErrorMsg('Kata sandi berhasil diperbarui. Silakan masuk menggunakan kata sandi baru.');
+        setIsRecoveryFlow(false);
+        setIsResetMode(false);
+        setPassword('');
+        window.history.replaceState(null, '', window.location.pathname);
+      } else {
+        if (!email.trim()) {
+          setErrorMsg('Masukkan alamat email akun Anda terlebih dahulu.');
+          return;
+        }
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: window.location.origin,
+        });
+        if (error) throw error;
+        setErrorMsg('Jika email terdaftar, tautan pemulihan kata sandi telah dikirim. Periksa Kotak Masuk dan folder Spam.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Terjadi kesalahan';
+      setErrorMsg('Tidak dapat memproses pemulihan kata sandi: ' + msg);
     } finally {
       setIsLoading(false);
     }
@@ -179,10 +226,10 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             <Cloud className="w-6 h-6 text-emerald-400" />
           </div>
           <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white font-sans">
-            {isRegisterMode ? 'Daftar Akun Supabase' : 'Masuk Akun Supabase'}
+            {isResetMode ? (isRecoveryFlow ? 'Buat Kata Sandi Baru' : 'Lupa Kata Sandi') : (isRegisterMode ? 'Daftar Akun Supabase' : 'Masuk Akun Supabase')}
           </h2>
           <p className="text-xs text-slate-400 mt-0.5 max-w-xs mx-auto font-mono">
-            Tersambung langsung ke cloud database Supabase Anda.
+            {isResetMode ? 'Pulihkan akses akun menggunakan email terdaftar.' : 'Tersambung langsung ke cloud database Supabase Anda.'}
           </p>
         </div>
 
@@ -442,7 +489,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           )}
 
           {/* Email / Password Form */}
-          <form onSubmit={handleEmailAuth} className="space-y-3 font-mono">
+          <form onSubmit={isResetMode ? handlePasswordReset : handleEmailAuth} className="space-y-3 font-mono">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">Alamat Email</label>
               <div className="relative">
@@ -458,8 +505,9 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
               </div>
             </div>
 
+            {!isResetMode || isRecoveryFlow ? (
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Kata Sandi</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">{isResetMode ? 'Kata Sandi Baru' : 'Kata Sandi'}</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -472,6 +520,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 />
               </div>
             </div>
+            ) : null}
 
             <button
               type="submit"
@@ -482,6 +531,11 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Memproses ke Supabase...</span>
+                </>
+              ) : isResetMode ? (
+                <>
+                  <Mail className="w-4 h-4" />
+                  <span>{isRecoveryFlow ? 'Simpan Kata Sandi Baru' : 'Kirim Tautan Pemulihan'}</span>
                 </>
               ) : isRegisterMode ? (
                 <>
@@ -497,8 +551,24 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             </button>
           </form>
 
+          {!isRegisterMode && !isResetMode && (
+            <div className="text-right">
+              <button type="button" onClick={() => { setIsResetMode(true); setErrorMsg(null); }} className="text-xs text-cyan-400 hover:text-cyan-300 underline underline-offset-4 cursor-pointer">
+                Lupa kata sandi?
+              </button>
+            </div>
+          )}
+
+          {isResetMode && !isRecoveryFlow && (
+            <div className="text-center">
+              <button type="button" onClick={() => { setIsResetMode(false); setErrorMsg(null); }} className="text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer">
+                Kembali ke halaman masuk
+              </button>
+            </div>
+          )}
+
           {/* Toggle Register / Login */}
-          <div className="pt-3 border-t border-slate-800 text-center">
+          {!isResetMode && <div className="pt-3 border-t border-slate-800 text-center">
             <button
               type="button"
               onClick={() => {
@@ -511,7 +581,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 ? 'Sudah punya akun? Masuk di sini'
                 : 'Belum punya akun? Klik untuk Buat Akun Supabase Baru'}
             </button>
-          </div>
+          </div>}
         </div>
       </div>
     </div>
