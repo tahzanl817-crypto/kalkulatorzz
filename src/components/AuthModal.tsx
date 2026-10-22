@@ -38,8 +38,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     const url = new URL(window.location.href);
     const hasRecoveryMarker =
       url.hash.includes('type=recovery') ||
-      url.searchParams.get('type') === 'recovery' ||
-      url.searchParams.has('code');
+      url.searchParams.get('type') === 'recovery';
 
     let active = true;
     if (hasRecoveryMarker) {
