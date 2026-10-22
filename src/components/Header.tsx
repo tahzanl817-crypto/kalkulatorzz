@@ -80,14 +80,14 @@ export const Header: React.FC<HeaderProps> = ({
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                         : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                     }`}
-                    title={isSyncingCloud ? 'Sedang sinkronisasi data ke Cloud Firestore...' : 'Tersinkronisasi ke Google Cloud Firestore'}
+                    title={isSyncingCloud ? 'Sedang sinkronisasi data ke Supabase...' : 'Tersinkronisasi ke Supabase Cloud'}
                   >
                     {isSyncingCloud ? (
                       'Sinkron...'
                     ) : (
                       <>
                         <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        <span>Cloud Firestore</span>
+                        <span>Supabase Cloud</span>
                       </>
                     )}
                   </span>

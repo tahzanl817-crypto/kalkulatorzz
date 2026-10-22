@@ -1,84 +1,143 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import {
-  auth,
-  googleProvider,
-  signInWithPopup,
-  firebaseSignOut,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  User,
-  testConnection
-} from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+import { User as SupabaseUser } from '@supabase/supabase-js';
+
+export interface AppUser {
+  id: string;
+  uid: string; // backwards compatibility with existing components
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null;
+  modalAwal?: number;
+  rawUser?: SupabaseUser;
+}
 
 interface AuthContextType {
-  user: User | null;
+  user: AppUser | null;
   loading: boolean;
   isOnline: boolean;
-  signInWithGoogle: () => Promise<User>;
-  signInWithEmail: (email: string, pass: string) => Promise<User>;
-  signUpWithEmail: (email: string, pass: string) => Promise<User>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, pass: string) => Promise<AppUser>;
+  signUpWithEmail: (email: string, pass: string) => Promise<{ user: AppUser | null; needsEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function mapSupabaseUser(sbUser: SupabaseUser): AppUser {
+  return {
+    id: sbUser.id,
+    uid: sbUser.id,
+    email: sbUser.email || null,
+    displayName: sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || (sbUser.email ? sbUser.email.split('@')[0] : 'Pengguna Toko'),
+    photoURL: sbUser.user_metadata?.avatar_url || null,
+    modalAwal: typeof sbUser.user_metadata?.modalAwal === 'number' ? sbUser.user_metadata.modalAwal : undefined,
+    rawUser: sbUser,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
-    // Clear any obsolete mock session
-    try {
-      localStorage.removeItem('niaganova_user_session');
-    } catch {
-      // ignore
-    }
-
-    testConnection().then((connected) => {
-      setIsOnline(connected);
-    });
-
-    // 100% Genuine Firebase Authentication listener
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    // Check initial Supabase session
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error fetching Supabase session:', error);
+      }
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Listen to real-time auth state changes in Supabase
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    // Simple online ping
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
-  // 1. Genuine Google Sign-In via Firebase Auth
-  const signInWithGoogle = async (): Promise<User> => {
-    try {
-      const res = await signInWithPopup(auth, googleProvider);
-      return res.user;
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message.includes('auth/unauthorized-domain')) {
-        console.warn('Firebase domain authorization required:', typeof window !== 'undefined' ? window.location.hostname : '');
-      } else {
-        console.error('Google Sign-in error:', err);
-      }
-      throw err;
+  // 1. Supabase Google OAuth
+  const signInWithGoogle = async (): Promise<void> => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) {
+      console.error('Supabase Google Sign-in error:', error);
+      throw error;
     }
   };
 
-  // 2. Genuine Email & Password Login via Firebase Auth
-  const signInWithEmail = async (email: string, pass: string): Promise<User> => {
-    const res = await signInWithEmailAndPassword(auth, email.trim(), pass);
-    return res.user;
+  // 2. Supabase Email & Password Sign In
+  const signInWithEmail = async (email: string, pass: string): Promise<AppUser> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    });
+    if (error) {
+      throw error;
+    }
+    if (!data.user) {
+      throw new Error('Gagal mendapatkan data pengguna.');
+    }
+    const appU = mapSupabaseUser(data.user);
+    setUser(appU);
+    return appU;
   };
 
-  // 3. Genuine Email & Password Registration via Firebase Auth
-  const signUpWithEmail = async (email: string, pass: string): Promise<User> => {
-    const res = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-    return res.user;
+  // 3. Supabase Email & Password Sign Up
+  const signUpWithEmail = async (
+    email: string,
+    pass: string
+  ): Promise<{ user: AppUser | null; needsEmailConfirmation: boolean }> => {
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: pass,
+      options: {
+        data: {
+          full_name: email.trim().split('@')[0],
+        },
+      },
+    });
+    if (error) {
+      throw error;
+    }
+
+    const appU = data.user ? mapSupabaseUser(data.user) : null;
+    const needsEmailConfirmation = !data.session;
+    if (appU && !needsEmailConfirmation) {
+      setUser(appU);
+    }
+    return { user: appU, needsEmailConfirmation };
   };
 
-  // 4. Genuine Logout via Firebase Auth
+  // 4. Supabase Logout
   const logout = async () => {
-    await firebaseSignOut(auth);
+    await supabase.auth.signOut();
     setUser(null);
   };
 
@@ -91,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithGoogle,
         signInWithEmail,
         signUpWithEmail,
-        logout
+        logout,
       }}
     >
       {children}

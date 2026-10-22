@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { InventoryItem, GlobalSummary } from '../types/inventory';
 import { exportBackupJSON, parseBackupJSON, fetchServerBackup } from '../utils/storageBackup';
 import { useAuth } from '../context/AuthContext';
-import { batchUploadToCloud, fetchUserItemsOnce, getUserProfile } from '../services/firestoreSync';
+import { batchSaveSupabaseItems, fetchSupabaseItems } from '../services/supabaseSync';
 import { 
   X, 
   Download, 
@@ -175,53 +175,57 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     }
   };
 
-  // 5. Cloud Sync Now
+  // 5. Cloud Sync Now (Supabase)
   const handleCloudSyncNow = async () => {
     if (!user) return;
     setIsCloudSyncing(true);
     setStatusMessage(null);
     try {
-      await batchUploadToCloud(user.uid, user.email || '', modalAwal, items);
-      setStatusMessage({
-        type: 'success',
-        text: `Semua ${items.length} barang berhasil dicadangkan ke Cloud Server Firestore!`
-      });
+      const ok = await batchSaveSupabaseItems(user.id, items, modalAwal);
+      if (ok) {
+        setStatusMessage({
+          type: 'success',
+          text: `Semua ${items.length} barang berhasil dicadangkan ke database cloud Supabase!`
+        });
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: 'Gagal sinkronisasi data ke Supabase. Periksa koneksi internet Anda.'
+        });
+      }
     } catch (err) {
       setStatusMessage({
         type: 'error',
-        text: 'Gagal sinkronisasi ke cloud: ' + (err instanceof Error ? err.message : String(err))
+        text: 'Gagal sinkronisasi ke Supabase: ' + (err instanceof Error ? err.message : String(err))
       });
     } finally {
       setIsCloudSyncing(false);
     }
   };
 
-  // 6. Fetch / Restore from Cloud
+  // 6. Fetch / Restore from Supabase Cloud
   const handleCloudFetchNow = async () => {
     if (!user) return;
     setIsCloudSyncing(true);
     setStatusMessage(null);
     try {
-      const [cloudItems, profile] = await Promise.all([
-        fetchUserItemsOnce(user.uid),
-        getUserProfile(user.uid)
-      ]);
+      const cloudItems = await fetchSupabaseItems(user.id);
       if (cloudItems && cloudItems.length > 0) {
-        onRestoreData(cloudItems, profile?.modalAwal ?? modalAwal);
+        onRestoreData(cloudItems, user.modalAwal ?? modalAwal);
         setStatusMessage({
           type: 'success',
-          text: `Berhasil memuat ${cloudItems.length} barang dari akun cloud Anda!`
+          text: `Berhasil memuat ${cloudItems.length} barang dari database Supabase Anda!`
         });
       } else {
         setStatusMessage({
           type: 'info',
-          text: 'Belum ada data tersimpan di akun cloud Anda.'
+          text: 'Belum ada data barang tersimpan di akun Supabase Anda.'
         });
       }
     } catch (err) {
       setStatusMessage({
         type: 'error',
-        text: 'Gagal mengambil data dari cloud: ' + (err instanceof Error ? err.message : String(err))
+        text: 'Gagal mengambil data dari Supabase: ' + (err instanceof Error ? err.message : String(err))
       });
     } finally {
       setIsCloudSyncing(false);

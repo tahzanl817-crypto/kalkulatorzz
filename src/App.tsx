@@ -31,14 +31,13 @@ import {
   fetchServerBackup 
 } from './utils/storageBackup';
 import {
-  saveUserProfile,
-  getUserProfile,
-  saveInventoryItemToCloud,
-  deleteInventoryItemFromCloud,
-  batchUploadToCloud,
-  subscribeUserItems,
-  fetchUserItemsOnce
-} from './services/firestoreSync';
+  fetchSupabaseItems,
+  saveSupabaseItem,
+  batchSaveSupabaseItems,
+  deleteSupabaseItem,
+  clearAllSupabaseItems,
+  saveSupabaseModalAwal,
+} from './services/supabaseSync';
 
 const ALL_STORAGE_KEYS = [
   'kalkulator_penjualan_rolling_items',
@@ -115,6 +114,7 @@ export default function App() {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isConfirmClearModalOpen, setIsConfirmClearModalOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
 
   // Cosmic Interactive Background theme
@@ -158,70 +158,48 @@ export default function App() {
     requestPersistentStorage();
   }, []);
 
-  // FIRESTORE REAL-TIME SYNCHRONIZATION EFFECT (100% Google Cloud Firestore)
+  // SUPABASE REAL-TIME & CLOUD SYNCHRONIZATION EFFECT
   useEffect(() => {
     if (!user) {
       return;
     }
 
-    let unsubscribeFirestore: (() => void) | undefined;
-
     const setupUserCloudData = async () => {
       setIsCloudSyncing(true);
       try {
-        // 1. Fetch user store settings (modal awal)
-        const profile = await getUserProfile(user.uid);
-        if (profile && profile.modalAwal !== undefined) {
-          setModalAwal(profile.modalAwal);
-          localStorage.setItem(MODAL_KEY, String(profile.modalAwal));
+        // 1. Fetch user store settings (modal awal) from Supabase metadata
+        if (user.modalAwal) {
+          setModalAwal(user.modalAwal);
+          localStorage.setItem(MODAL_KEY, String(user.modalAwal));
         } else {
-          // If first time, save current local modal awal to cloud
-          await saveUserProfile(user.uid, {
-            modalAwal: modalAwal,
-            email: user.email || '',
-            displayName: user.displayName || '',
-          });
+          saveSupabaseModalAwal(modalAwal);
         }
 
-        // 2. Fetch items from cloud once
-        const cloudItems = await fetchUserItemsOnce(user.uid);
+        // 2. Fetch items from Supabase inventory_items table
+        const sbItems = await fetchSupabaseItems(user.id);
 
-        if (cloudItems.length > 0) {
-          // Cloud has data: use cloud data as single source of truth
-          setItems(cloudItems);
-          saveToIndexedDB(cloudItems);
+        if (sbItems.length > 0) {
+          setItems(sbItems);
+          saveToIndexedDB(sbItems);
           for (const key of ALL_STORAGE_KEYS) {
-            localStorage.setItem(key, JSON.stringify(cloudItems));
+            localStorage.setItem(key, JSON.stringify(sbItems));
           }
-          setCloudNotification(`Data berhasil dimuat dari database cloud (${cloudItems.length} barang).`);
+          setCloudNotification(`Data toko berhasil dimuat dari database Supabase (${sbItems.length} barang).`);
         } else if (items.length > 0) {
-          // Cloud is empty, but local has items -> upload local items to cloud
-          await batchUploadToCloud(user.uid, items, modalAwal);
-          setCloudNotification(`Data lokal berhasil dicadangkan ke akun cloud (${items.length} barang).`);
-        }
-
-        // 3. Subscribe to real-time changes
-        unsubscribeFirestore = subscribeUserItems(user.uid, (syncedItems) => {
-          setItems(syncedItems);
-          saveToIndexedDB(syncedItems);
-          for (const key of ALL_STORAGE_KEYS) {
-            localStorage.setItem(key, JSON.stringify(syncedItems));
+          for (const it of items) {
+            await saveSupabaseItem(user.id, it);
           }
-        });
+          await saveSupabaseModalAwal(modalAwal);
+          setCloudNotification(`Data toko berhasil disinkronkan ke Supabase Cloud (${items.length} barang).`);
+        }
       } catch (err: any) {
-        console.error('Failed to setup cloud sync:', err);
+        console.error('Failed to setup Supabase sync:', err);
       } finally {
         setIsCloudSyncing(false);
       }
     };
 
     setupUserCloudData();
-
-    return () => {
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-      }
-    };
   }, [user]);
 
   // Fallback initial load from IndexedDB or server when user is not logged in
@@ -301,9 +279,9 @@ export default function App() {
     if (user) {
       setIsCloudSyncing(true);
       try {
-        await saveInventoryItemToCloud(user.uid, item);
+        await saveSupabaseItem(user.id, item);
       } catch (e) {
-        console.error('Failed to sync added item to cloud:', e);
+        console.error('Failed to sync added item to Supabase:', e);
       } finally {
         setIsCloudSyncing(false);
       }
@@ -335,9 +313,9 @@ export default function App() {
       if (user && updatedTargetItem) {
         setIsCloudSyncing(true);
         try {
-          await saveInventoryItemToCloud(user.uid, updatedTargetItem);
+          await saveSupabaseItem(user.id, updatedTargetItem);
         } catch (e) {
-          console.error('Failed to update item in cloud:', e);
+          console.error('Failed to update item in Supabase:', e);
         } finally {
           setIsCloudSyncing(false);
         }
@@ -355,9 +333,9 @@ export default function App() {
       if (user) {
         setIsCloudSyncing(true);
         try {
-          await saveInventoryItemToCloud(user.uid, newItem);
+          await saveSupabaseItem(user.id, newItem);
         } catch (e) {
-          console.error('Failed to add item to cloud:', e);
+          console.error('Failed to add item to Supabase:', e);
         } finally {
           setIsCloudSyncing(false);
         }
@@ -376,9 +354,9 @@ export default function App() {
       if (user) {
         setIsCloudSyncing(true);
         try {
-          await deleteInventoryItemFromCloud(user.uid, id);
+          await deleteSupabaseItem(id);
         } catch (e) {
-          console.error('Failed to delete item from cloud:', e);
+          console.error('Failed to delete item from Supabase:', e);
         } finally {
           setIsCloudSyncing(false);
         }
@@ -408,9 +386,9 @@ export default function App() {
 
     if (user && updatedItem) {
       try {
-        await saveInventoryItemToCloud(user.uid, updatedItem);
+        await saveSupabaseItem(user.id, updatedItem);
       } catch (e) {
-        console.error('Failed to update sold qty in cloud:', e);
+        console.error('Failed to update sold qty in Supabase:', e);
       }
     }
   };
@@ -434,9 +412,9 @@ export default function App() {
 
     if (user && updatedItem) {
       try {
-        await saveInventoryItemToCloud(user.uid, updatedItem);
+        await saveSupabaseItem(user.id, updatedItem);
       } catch (e) {
-        console.error('Failed to set sold qty in cloud:', e);
+        console.error('Failed to set sold qty in Supabase:', e);
       }
     }
   };
@@ -447,34 +425,36 @@ export default function App() {
 
     if (user) {
       try {
-        await saveUserProfile(user.uid, { modalAwal: newModal });
+        await saveSupabaseModalAwal(newModal);
       } catch (e) {
-        console.error('Failed to update modalAwal in cloud:', e);
+        console.error('Failed to update modalAwal in Supabase:', e);
       }
     }
   };
 
-  const handleClearAll = async () => {
-    if (window.confirm('Kosongkan semua data barang dari tabel?')) {
-      if (user) {
-        setIsCloudSyncing(true);
-        try {
-          for (const item of items) {
-            await deleteInventoryItemFromCloud(user.uid, item.id);
-          }
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setIsCloudSyncing(false);
-        }
-      }
+  const handleClearAll = () => {
+    setIsConfirmClearModalOpen(true);
+  };
 
-      setItems([]);
-      for (const k of ALL_STORAGE_KEYS) {
-        localStorage.removeItem(k);
+  const handleConfirmClearAll = async () => {
+    setIsConfirmClearModalOpen(false);
+    setItems([]);
+    for (const k of ALL_STORAGE_KEYS) {
+      localStorage.removeItem(k);
+    }
+    saveToIndexedDB([], modalAwal);
+    syncToServer([], modalAwal);
+
+    if (user) {
+      setIsCloudSyncing(true);
+      try {
+        await clearAllSupabaseItems(user.id);
+        setCloudNotification('Semua data barang berhasil dikosongkan dari tabel dan database Supabase.');
+      } catch (e) {
+        console.error('Failed to clear Supabase items:', e);
+      } finally {
+        setIsCloudSyncing(false);
       }
-      saveToIndexedDB([], modalAwal);
-      syncToServer([], modalAwal);
     }
   };
 
@@ -488,10 +468,10 @@ export default function App() {
     if (user) {
       setIsCloudSyncing(true);
       try {
-        await batchUploadToCloud(user.uid, restoredItems, restoredModalAwal ?? modalAwal);
-        setCloudNotification('Data cadangan berhasil dipulihkan dan disinkronkan ke cloud.');
+        await batchSaveSupabaseItems(user.id, restoredItems, restoredModalAwal ?? modalAwal);
+        setCloudNotification('Data cadangan berhasil dipulihkan dan disinkronkan ke Supabase Cloud.');
       } catch (e) {
-        console.error('Failed to sync restored data to cloud:', e);
+        console.error('Failed to sync restored data to Supabase:', e);
       } finally {
         setIsCloudSyncing(false);
       }
@@ -506,11 +486,15 @@ export default function App() {
 
     setIsCloudSyncing(true);
     try {
-      await batchUploadToCloud(user.uid, items, modalAwal);
-      setCloudNotification(`Sinkronisasi manual berhasil! ${items.length} barang tersimpan aman di cloud.`);
+      const ok = await batchSaveSupabaseItems(user.id, items, modalAwal);
+      if (ok) {
+        setCloudNotification(`Sinkronisasi berhasil! ${items.length} barang tersimpan aman di Supabase Cloud.`);
+      } else {
+        setCloudNotification('Gagal melakukan sinkronisasi ke Supabase. Periksa koneksi internet.');
+      }
     } catch (e: any) {
       console.error(e);
-      setCloudNotification('Gagal melakukan sinkronisasi cloud. Coba periksa koneksi internet.');
+      setCloudNotification('Gagal melakukan sinkronisasi Supabase: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setIsCloudSyncing(false);
     }
@@ -545,12 +529,12 @@ export default function App() {
 
         {/* Cloud Status / Welcome Banner */}
         {!user && !isAuthLoading && (
-          <div className="no-print bg-amber-950/40 backdrop-blur-md text-amber-200 px-4 py-2.5 text-xs border-b border-amber-500/30">
+          <div className="no-print bg-emerald-950/40 backdrop-blur-md text-emerald-200 px-4 py-2.5 text-xs border-b border-emerald-500/30">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Cloud className="w-4 h-4 text-amber-400 shrink-0" />
+                <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="font-mono text-[11px] sm:text-xs text-slate-300">
-                  <strong className="text-amber-300">Penyimpanan Google Cloud:</strong> Masuk dengan akun resmi Google atau Email agar seluruh data transaksi & modal kasir tersimpan 100% di Google Cloud Firestore.
+                  <strong className="text-emerald-300">Penyimpanan Supabase Cloud:</strong> Masuk dengan akun Supabase agar seluruh data transaksi & modal kasir tersimpan di cloud database Supabase Anda.
                 </span>
               </div>
               <button
@@ -558,7 +542,7 @@ export default function App() {
                 className="flex items-center gap-1.5 px-3.5 py-1 bg-emerald-400 hover:bg-emerald-300 text-slate-950 rounded-xl font-mono font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-sm shadow-emerald-500/20"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>Masuk ke Cloud</span>
+                <span>Masuk ke Supabase</span>
               </button>
             </div>
           </div>
@@ -731,6 +715,39 @@ export default function App() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
       />
+
+      {/* Modal Konfirmasi Hapus Semua Data */}
+      {isConfirmClearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl p-6 shadow-2xl text-slate-100 font-sans space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-white">Kosongkan Semua Data Barang?</h3>
+              <p className="text-xs text-slate-400 font-mono leading-relaxed">
+                Tindakan ini akan menghapus seluruh daftar barang dari tabel pembukuan kasir dan database cloud Supabase Anda ({items.length} barang). Tindakan ini tidak dapat dibatalkan.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center gap-3 font-mono">
+              <button
+                type="button"
+                onClick={() => setIsConfirmClearModalOpen(false)}
+                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer border border-slate-700"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearAll}
+                className="flex-1 py-2.5 px-4 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-lg shadow-rose-500/25"
+              >
+                Ya, Hapus Semua
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Print View Component */}
       <PrintReportView
