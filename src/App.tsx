@@ -147,8 +147,7 @@ export default function App() {
     const url = new URL(window.location.href);
     const hasRecoveryMarker =
       url.hash.includes('type=recovery') ||
-      url.searchParams.get('type') === 'recovery' ||
-      url.searchParams.has('code');
+      url.searchParams.get('type') === 'recovery';
 
     if (hasRecoveryMarker) setIsAuthModalOpen(true);
 
