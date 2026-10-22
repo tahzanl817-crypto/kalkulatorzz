@@ -139,6 +139,13 @@ export default function App() {
     }
   };
 
+  // Automatically open sign-in modal for password recovery links.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash.includes('type=recovery')) {
+      setIsAuthModalOpen(true);
+    }
+  }, []);
+
   // Cloud Sync Statuses
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [cloudNotification, setCloudNotification] = useState<string | null>(null);
